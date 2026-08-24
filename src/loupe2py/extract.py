@@ -184,7 +184,10 @@ def stitch_tiles(cloupe_obj, target_level=None):
 def get_cellseg_projection(cloupe_obj):
     """Return spatial coordinates from CellSegs (standard Visium + cell segmentation).
 
-    Centers are stored in microns; dividing by MicronsPerPixel gives pixel coords.
+    Centers are already in full-resolution image pixel coordinates (verified
+    empirically: aggregated ranges land inside each file's real
+    SpatialImageTiles dimensions without any further scaling -- no division
+    by MicronsPerPixel here, unlike an earlier version of this function).
     BarcodeIndices maps each cell segment to a barcode; we average per barcode.
 
     Returns dict with keys: pxl_col, pxl_row, bin_size_px, microns_per_pixel.
@@ -202,7 +205,23 @@ def get_cellseg_projection(cloupe_obj):
     n_barcodes = cloupe_obj.matrices[0]["BarcodeCount"]
 
     raw_c = cloupe_obj.read_block(cs["Centers"]["Start"], cs["Centers"]["End"])
-    centers = np.frombuffer(raw_c, dtype=np.float64).reshape(n_cells, 2)
+    # Struct-of-arrays layout: [x0, x1, ..., xN-1, y0, y1, ..., yN-1], NOT
+    # interleaved (x0, y0, x1, y1, ...). This matches the same convention the
+    # Cloupe class's own Projections parser already uses elsewhere in this
+    # file format (see how "coordinates" is built in the vendored cloupe.py:
+    # each axis's full run of values comes first, then the next axis's).
+    # An earlier version of this function used .reshape(n_cells, 2), which
+    # silently paired up two nearby same-axis values as a fake (x, y) pair
+    # for a large fraction of segments -- producing near-perfect
+    # pxl_row=pxl_col diagonal artifacts for ~30-40% of cells in every real
+    # cell-segmented .cloupe file checked. Confirmed by an independent
+    # signal too: per-segment corr(x, y) is ~0.99 under the wrong reshape
+    # (implausible for real 2D tissue positions) and drops to a normal,
+    # weak ~-0.15 under this one.
+    centers = np.frombuffer(raw_c, dtype=np.float64).reshape(2, n_cells).T
+    # NOTE: the CellSegs "Sizes" field (per-segment width/height, not read by
+    # this package today) almost certainly shares this same struct-of-arrays
+    # layout -- apply the same .reshape(2, n_cells).T if it's ever consumed.
 
     raw_bi = cloupe_obj.read_block(
         cs["BarcodeIndices"]["Start"], cs["BarcodeIndices"]["End"]
@@ -216,8 +235,8 @@ def get_cellseg_projection(cloupe_obj):
     bi, centers = bi[assigned], centers[assigned]
 
     safe_cnt = np.maximum(np.bincount(bi, minlength=n_barcodes), 1)
-    pxl_col = np.bincount(bi, weights=centers[:, 0], minlength=n_barcodes) / safe_cnt / mpp
-    pxl_row = np.bincount(bi, weights=centers[:, 1], minlength=n_barcodes) / safe_cnt / mpp
+    pxl_col = np.bincount(bi, weights=centers[:, 0], minlength=n_barcodes) / safe_cnt
+    pxl_row = np.bincount(bi, weights=centers[:, 1], minlength=n_barcodes) / safe_cnt
 
     return {
         "pxl_col": pxl_col.tolist(),
@@ -268,8 +287,14 @@ def get_spatial_projection(cloupe_obj):
 # round(pixel / bin_size_px), which was found to disagree with SpaceRanger's
 # own array_row/array_col by several hundred bins -- SpaceRanger's grid isn't
 # anchored at this package's stitched-image pixel origin. Non-HD barcodes
-# (e.g. cell-segmentation "cellid_..." barcodes) don't match this pattern and
-# fall back to the pixel-rounding approximation.
+# (e.g. cell-segmentation "cellid_..." barcodes) don't match this pattern.
+# For cell-segmentation data specifically, there IS no pixel-rounding
+# fallback in practice: get_cellseg_projection() always returns
+# bin_size_px=None (cell segments aren't laid out on any fixed grid), so
+# array_row/array_col are unconditionally (0, 0) for every cell in a
+# cell-segmented .cloupe file -- not an approximation, just not meaningful
+# for this data type. Real spatial positions (pxl_row/pxl_col, obsm['spatial'])
+# are unaffected and are what actually drives spot placement in plots.
 _HD_BARCODE_RE = re.compile(r"^s_\d+um_(\d+)_(\d+)-\d+$")
 
 

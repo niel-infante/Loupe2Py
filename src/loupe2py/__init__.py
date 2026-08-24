@@ -5,4 +5,4 @@ from .extract import extract_cloupe
 
 __all__ = ["cloupe_to_anndata", "extract_cloupe"]
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
