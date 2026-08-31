@@ -2,7 +2,7 @@
 
 Import 10x Genomics `.cloupe` files (including Visium HD) into [squidpy](https://squidpy.readthedocs.io/)-ready [AnnData](https://anndata.readthedocs.io/) objects.
 
-R/Seurat user? See the companion package, [**Loupe2R**](https://github.com/niel-infante/Loupe2R).
+R/Seurat user? See the companion package, [**Loupe2R**](https://github.com/niel-infante/Loupe2R). Looking for the full function list (including internal, unexported functions)? See [`REFERENCE.md`](REFERENCE.md).
 
 squidpy has no object type of its own — it operates directly on `AnnData`, following the same `.obsm['spatial']` / `.uns['spatial'][library_id]` convention [scanpy](https://scanpy.readthedocs.io/) established. `Loupe2Py` extracts the count matrix, spatial coordinates, tissue image, UMAP embedding, and Space Ranger cluster labels from a `.cloupe` file and assembles an `AnnData` object in that convention, ready for squidpy's spatial analysis functions directly.
 
