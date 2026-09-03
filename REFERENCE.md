@@ -18,7 +18,7 @@ cloupe_to_anndata(
 )
 ```
 
-Imports one `.cloupe` file — Visium HD or standard Visium with cell segmentation — into a squidpy-ready `AnnData` object, following the same `obsm['spatial']` / `uns['spatial'][library_id]` convention `scanpy`/`squidpy` use. Calls `extract_cloupe()` internally, then builds the count matrix (as `layers["counts"]` plus the working `.X`), `obs` (library identity, QC metrics, `array_row`/`array_col`, Space Ranger clusterings as `sr_`-prefixed categoricals, user cell tracks), `var`, `obsm['spatial']`, `obsm['X_<name>']` for other embeddings, and `uns['spatial'][library_id]` (images, scale factors). Also stashes `bin_size_um` and `cloupe_format_info` in `uns`.
+Imports one `.cloupe` file — Visium HD, in either binned or cell-segmentation mode — into a squidpy-ready `AnnData` object, following the same `obsm['spatial']` / `uns['spatial'][library_id]` convention `scanpy`/`squidpy` use. Calls `extract_cloupe()` internally, then builds the count matrix (as `layers["counts"]` plus the working `.X`), `obs` (library identity, QC metrics, `array_row`/`array_col`, Space Ranger clusterings as `sr_`-prefixed categoricals, user cell tracks), `var`, `obsm['spatial']`, `obsm['X_<name>']` for other embeddings, and `uns['spatial'][library_id]` (images, scale factors). Also stashes `bin_size_um` and `cloupe_format_info` in `uns`.
 
 - `cloupe_path` — path to the `.cloupe` file.
 - `library_id` — identifier for this sample; becomes the `uns['spatial']` key and `obs['library_id']`. Defaults to the `.cloupe` filename with its extension stripped.
@@ -56,7 +56,7 @@ Not in `__all__`, no compatibility guarantee.
 | `check_format_version(cloupe_obj)` | Compares the file's internal format-version fields (container, run, matrix, projection) against a known-tested table; returns detected versions and any warnings. Called automatically by `extract_cloupe()`. |
 | `stitch_tiles(cloupe_obj, target_level=None)` | Reconstructs the full-resolution tissue image from the file's internal tile pyramid; auto-selects the highest zoom level and normalizes to RGB. |
 | `get_spatial_projection(cloupe_obj)` | Returns the Visium HD `"Spatial"` projection's pixel coordinates and bin size; falls back to `get_cellseg_projection()` when the file has no HD projection. |
-| `get_cellseg_projection(cloupe_obj)` | Returns per-barcode pixel coordinates for cell-segmented (non-HD) `.cloupe` files, by averaging per-cell-segment centroids from the `CellSegs` data block. |
+| `get_cellseg_projection(cloupe_obj)` | Returns per-barcode pixel coordinates for Visium HD cell-segmentation-mode `.cloupe` files, by averaging per-cell-segment centroids from the `CellSegs` data block. |
 | `parse_array_position(barcode, pxl_row, pxl_col, bin_px)` | Returns `(array_row, array_col)` for one barcode: parsed exactly from a Visium HD barcode string when it matches that format, else rounded from pixel coordinates, else `(0, 0)`. |
 | `read_clusterings(cloupe_obj)` | Returns Space Ranger's graph/k-means cluster label assignments per barcode. |
 

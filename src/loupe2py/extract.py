@@ -57,11 +57,11 @@ from ._vendor.cloupe import Cloupe
 # Format version guard
 # ---------------------------------------------------------------------------
 
-# Known-good format versions, seeded from real Visium HD and standard-Visium
-# .cloupe files (multiple samples/labs; same values validated for Loupe2R).
-# Grow these sets as new files are validated; an unrecognized version
-# triggers a warning, not a failure, since the parser may well still be
-# correct -- it just hasn't been checked.
+# Known-good format versions, seeded from real Visium HD .cloupe files in
+# both binned and cell-segmentation modes (multiple samples/labs; same
+# values validated for Loupe2R). Grow these sets as new files are
+# validated; an unrecognized version triggers a warning, not a failure,
+# since the parser may well still be correct -- it just hasn't been checked.
 _TESTED_VERSIONS = {
     "container": {"9.0.0"},
     "run": {"3.0.0"},
@@ -182,7 +182,10 @@ def stitch_tiles(cloupe_obj, target_level=None):
 # ---------------------------------------------------------------------------
 
 def get_cellseg_projection(cloupe_obj):
-    """Return spatial coordinates from CellSegs (standard Visium + cell segmentation).
+    """Return spatial coordinates from CellSegs (Visium HD, cell-segmentation mode --
+    a SpaceRanger 4.0+ analysis mode, distinct from binned mode, that assigns
+    transcripts to individual cells via image-based nucleus/cell segmentation;
+    each mode produces its own separate .cloupe file).
 
     Centers are already in full-resolution image pixel coordinates (verified
     empirically: aggregated ranges land inside each file's real
@@ -249,8 +252,8 @@ def get_cellseg_projection(cloupe_obj):
 def get_spatial_projection(cloupe_obj):
     """Return spatial coordinate arrays and scale metadata.
 
-    Tries the Visium HD 'Spatial' projection first, then falls back to
-    CellSegs coordinates (standard Visium + cell segmentation).
+    Tries the Visium HD 'Spatial' projection (binned mode) first, then falls
+    back to CellSegs coordinates (cell-segmentation mode).
 
     Returns dict with keys: pxl_col, pxl_row, bin_size_px, microns_per_pixel,
     or None if no spatial information is found.
