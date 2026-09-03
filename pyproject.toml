@@ -4,12 +4,17 @@ build-backend = "hatchling.build"
 
 [project]
 name = "loupe2py"
-version = "0.1.1"
+version = "0.2.0"
 description = "Import 10x Genomics .cloupe files (including Visium HD) into squidpy-ready AnnData objects"
 readme = "README.md"
 requires-python = ">=3.9"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE", "THIRD_PARTY_LICENSES/*"]
 authors = [
     { name = "Niel Infante", email = "nielinfante@gmail.com" },
+]
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
 ]
 dependencies = [
     "anndata",

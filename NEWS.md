@@ -1,3 +1,9 @@
+# loupe2py 0.2.0
+
+## License change
+
+- `loupe2py` is now formally licensed **AGPL-3.0-or-later**, resolving the "not yet finalized" note that had been carried since initial development. This package vendors AGPL-3.0-licensed code from [`cellgeni/cloupe`](https://github.com/cellgeni/cloupe) directly into its own source (`src/loupe2py/_vendor/cloupe.py`), which makes the combined work AGPL-3.0 under that license's terms. See the README's [License](https://github.com/niel-infante/Loupe2Py#license) section.
+
 # loupe2py 0.1.1
 
 ## Bug fix

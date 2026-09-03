@@ -52,7 +52,7 @@ sq.pl.spatial_scatter(adata, color="total_counts")
 
 The hard part — reverse-engineering the proprietary `.cloupe` binary format at all (the header layout, byte-offset index block, matrix/projection encoding, and tiled image storage) — is not this package's work. It's [`cellgeni/cloupe`](https://github.com/cellgeni/cloupe), written by **Martin Prete** and **Nithin Mathew Joseph** of the Wellcome Sanger Institute's Cellular Genetics Informatics (cellgeni) team, AGPL-3.0 licensed. A pinned copy is vendored directly into this package at `src/loupe2py/_vendor/cloupe.py` (see that file's header for the exact commit) rather than kept as an external dependency, to eliminate a class of path-configuration bugs and pin an exact, tested parser version. Full license text: [`THIRD_PARTY_LICENSES/cellgeni-cloupe-AGPL-3.0.txt`](THIRD_PARTY_LICENSES/cellgeni-cloupe-AGPL-3.0.txt).
 
-**Note:** vendoring this AGPL-3.0 code changes the licensing analysis for this package's own license — that question has not yet been resolved (deferred deliberately during initial development) and needs a real pass before this package is distributed beyond personal/lab use.
+**Note:** vendoring this AGPL-3.0 code makes this package a combined work under AGPL-3.0 terms, so `Loupe2Py` is itself licensed **AGPL-3.0-or-later** — see [License](#license) below.
 
 Also indebted to the [scverse](https://scverse.org/) ecosystem ([AnnData](https://anndata.readthedocs.io/), [scanpy](https://scanpy.readthedocs.io/), [squidpy](https://squidpy.readthedocs.io/)) for the conventions and reference outputs this package's Visium HD support was validated against, and to [10x Genomics' SpaceRanger](https://www.10xgenomics.com/support/software/space-ranger) for the official output used as ground truth (see [Validation](#validation)).
 
@@ -75,4 +75,4 @@ Reproduce this validation yourself (see `tests/test_integration_visium_hd.py`) b
 
 ## License
 
-Not yet finalized — see the [Credits](#credits) note above about the vendoring/AGPL question. `THIRD_PARTY_LICENSES/` contains the full license text for vendored code.
+AGPL-3.0-or-later (see `LICENSE`). This package vendors AGPL-3.0 code ([Credits](#credits) above) directly into its own source, which under AGPL-3.0's terms makes the combined work AGPL-3.0 as well. `THIRD_PARTY_LICENSES/` contains the full license text for the vendored code specifically.
