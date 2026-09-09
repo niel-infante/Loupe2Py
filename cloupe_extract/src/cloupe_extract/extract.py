@@ -3,11 +3,11 @@ Extract data from 10x Genomics .cloupe files into a set of generic,
 SpaceRanger-convention-like intermediate files.
 
 Usage (library):
-    from loupe2py.extract import extract_cloupe
+    from cloupe_extract.extract import extract_cloupe
     extract_cloupe("sample.cloupe", "/path/to/outdir")
 
 Usage (CLI):
-    python -m loupe2py.extract <cloupe_path> <outdir>
+    python -m cloupe_extract.extract <cloupe_path> <outdir>
 
 Outputs written to outdir:
     matrix.mtx.gz           - sparse count matrix (Market Exchange format)
@@ -23,13 +23,13 @@ Outputs written to outdir:
                                 unvalidated-version warnings
 
 Requires: scipy, numpy, Pillow. The .cloupe binary parser (cellgeni/cloupe)
-is vendored in loupe2py._vendor.cloupe -- no external install or path
+is vendored in cloupe_extract._vendor.cloupe -- no external install or path
 configuration needed.
 
 This module is deliberately framework-agnostic: it has no knowledge of
-Seurat, AnnData, or any other downstream object model. loupe2py.anndata_io
-(and, separately, the Loupe2R R package via reticulate) both build on top
-of it by reading the files it writes.
+Seurat, AnnData, or any other downstream object model. loupe2py (Python,
+AnnData) and Loupe2R (R, Seurat, via reticulate) both depend on this
+package and build on top of it by reading the files it writes.
 """
 
 import gzip
@@ -700,6 +700,6 @@ def extract_cloupe(cloupe_path, outdir, include_image=True):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python -m loupe2py.extract <cloupe_path> <outdir>")
+        print("Usage: python -m cloupe_extract.extract <cloupe_path> <outdir>")
         sys.exit(1)
     extract_cloupe(sys.argv[1], sys.argv[2])

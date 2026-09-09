@@ -9,7 +9,7 @@ following the convention scanpy's read_visium() established:
     adata.uns['spatial'][library_id]['metadata']
 
 This module's job is exactly what R/cloupe_to_seurat.R does for Seurat:
-read back the generic files loupe2py.extract.extract_cloupe() already wrote,
+read back the generic files cloupe_extract.extract_cloupe() already wrote,
 and assemble them into that convention.
 """
 
@@ -26,7 +26,7 @@ import pandas as pd
 import scipy.io
 from PIL import Image
 
-from . import extract as _extract
+from cloupe_extract import extract as _extract
 
 
 def _detect_mt_pattern(var_names):
@@ -58,7 +58,7 @@ def cloupe_to_anndata(
 ):
     """Import a 10x Genomics .cloupe file into a squidpy-ready AnnData object.
 
-    Calls loupe2py.extract.extract_cloupe() to parse the .cloupe binary,
+    Calls cloupe_extract.extract.extract_cloupe() to parse the .cloupe binary,
     then assembles an AnnData object with the count matrix, spatial
     coordinates, tissue image, UMAP embedding, and Space Ranger cluster
     labels -- following the same obsm['spatial']/uns['spatial'] convention

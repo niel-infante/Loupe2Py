@@ -3,7 +3,7 @@ import json
 import numpy as np
 import scipy.sparse
 
-from loupe2py.extract import (
+from cloupe_extract.extract import (
     _cellseg_positions_from_geojson,
     _polygon_centroid,
     check_format_version,

@@ -8,16 +8,16 @@
 #          Wellcome Sanger Institute, Cellular Genetics Informatics (cellgeni)
 #
 # This is the actual reverse-engineering work that makes reading .cloupe
-# files possible at all -- everything in loupe2py.extract is built on top
-# of the Cloupe class below, unchanged. See ../../../THIRD_PARTY_LICENSES/
+# files possible at all -- everything in cloupe_extract.extract is built on
+# top of the Cloupe class below, unchanged. See ../../../THIRD_PARTY_LICENSES/
 # for the original AGPL-3.0 license text, preserved as required.
 #
 # Vendored (rather than kept as an external pip dependency) specifically to
 # pin an exact, tested version of this parser and eliminate the class of
 # external-path-configuration bugs that affected earlier versions of this
-# project. See loupe2py's README for the licensing implications of
-# vendoring AGPL-3.0 code, which are a separate, not-yet-finalized question
-# from the engineering rationale above.
+# project. See cloupe_extract's README for the licensing implications of
+# vendoring AGPL-3.0 code (this vendoring is why cloupe_extract, and by
+# extension loupe2py and Loupe2R which depend on it, are AGPL-3.0-or-later).
 # ---------------------------------------------------------------------------
 
 # __init__.py

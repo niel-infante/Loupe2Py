@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "loupe2py"
-version = "0.3.0"
-description = "Import 10x Genomics .cloupe files (including Visium HD) into squidpy-ready AnnData objects"
+name = "cloupe_extract"
+version = "0.1.0"
+description = "Shared .cloupe extraction core underlying loupe2py (Python/AnnData) and Loupe2R (R/Seurat)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "AGPL-3.0-or-later"
@@ -17,27 +17,19 @@ classifiers = [
     "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
 ]
 dependencies = [
-    "cloupe_extract @ git+https://github.com/niel-infante/Loupe2Py.git#subdirectory=cloupe_extract",
-    "anndata",
     "numpy",
     "scipy",
-    "pandas",
     "pillow",
 ]
 
 [project.optional-dependencies]
 test = [
     "pytest",
-    "squidpy",
-    "pyarrow",
 ]
 
 [project.urls]
 Homepage = "https://github.com/niel-infante/Loupe2Py"
 Issues = "https://github.com/niel-infante/Loupe2Py/issues"
 
-[tool.hatch.metadata]
-allow-direct-references = true
-
 [tool.hatch.build.targets.wheel]
-packages = ["src/loupe2py"]
+packages = ["src/cloupe_extract"]

@@ -8,7 +8,7 @@ squidpy has no object type of its own — it operates directly on `AnnData`, fol
 
 This is the Python sibling of [Loupe2R](https://github.com/niel-infante/Loupe2R), which does the same job for Seurat. Both are built on the same underlying `.cloupe`-parsing core.
 
-**Read [Limitations & Risks](#limitations--risks) before using this on anything you plan to publish.** This package parses an undocumented, proprietary file format using an unofficial, reverse-engineered parser (vendored — see [Credits](#credits)). It has been validated carefully on real data (see [Validation](#validation) below), but it is not a substitute for 10x Genomics' own SpaceRanger output when that's available.
+**Read [Limitations & Risks](#limitations--risks) before using this on anything you plan to publish.** This package parses an undocumented, proprietary file format via [`cloupe_extract`](https://github.com/niel-infante/Loupe2Py/tree/main/cloupe_extract), which wraps an unofficial, reverse-engineered parser (vendored — see [Credits](#credits)). It has been validated carefully on real data (see [Validation](#validation) below), but it is not a substitute for 10x Genomics' own SpaceRanger output when that's available.
 
 ## Installation
 
@@ -16,7 +16,7 @@ This is the Python sibling of [Loupe2R](https://github.com/niel-infante/Loupe2R)
 pip install git+https://github.com/niel-infante/Loupe2Py.git
 ```
 
-No separate install step for the `.cloupe` parser — unlike Loupe2R, `Loupe2Py` vendors a pinned copy of it directly (see [Credits](#credits)), so there's no external path to configure.
+No separate install step for the `.cloupe` parser — `pip install` above pulls in [`cloupe_extract`](cloupe_extract/) (which vendors the parser itself, see [Credits](#credits)) automatically as a dependency, unlike Loupe2R, where you install `cloupe_extract` yourself since R packages can't declare a Python dependency.
 
 ## Quick start
 
@@ -38,7 +38,7 @@ sq.pl.spatial_scatter(adata, color="total_counts")
 
 ## Limitations & Risks
 
-**The `.cloupe` format is proprietary and undocumented.** It's a custom binary container (JSON header + byte-offset index, not SQLite) with no public spec. The vendored parser this package is built on, [`cellgeni/cloupe`](https://github.com/cellgeni/cloupe), is an unofficial, reverse-engineered tool with no version-compatibility guarantees across Loupe Browser/CellRanger/SpaceRanger releases. `Loupe2Py` checks the file's internal format-version fields against a known-tested set on every extraction and warns (via Python's `warnings`) — while still proceeding — if a file reports an unrecognized version. The detected versions are always available afterward via `adata.uns['cloupe_format_info']`.
+**The `.cloupe` format is proprietary and undocumented.** It's a custom binary container (JSON header + byte-offset index, not SQLite) with no public spec. `Loupe2Py` depends on [`cloupe_extract`](https://github.com/niel-infante/Loupe2Py/tree/main/cloupe_extract) for the actual parsing, which vendors [`cellgeni/cloupe`](https://github.com/cellgeni/cloupe), an unofficial, reverse-engineered tool with no version-compatibility guarantees across Loupe Browser/CellRanger/SpaceRanger releases. Every extraction checks the file's internal format-version fields against a known-tested set and warns (via Python's `warnings`) — while still proceeding — if a file reports an unrecognized version. The detected versions are always available afterward via `adata.uns['cloupe_format_info']`.
 
 **Loupe-derived annotations reflect default, unfiltered pipeline output, not your own analysis.** In [satijalab/seurat#9269](https://github.com/satijalab/seurat/issues/9269), a Seurat maintainer cautions that data exported from Loupe Browser reflects only the default parameters SpaceRanger/CellRanger ran with — no manual QC, filtering, or normalization decisions are captured. This applies regardless of which downstream framework you're targeting. Treat `sr_*` clusterings as exploratory defaults, not a substitute for your own analysis.
 
@@ -68,9 +68,9 @@ Even for common cases, `.cloupe` doesn't carry everything in a full SpaceRanger 
 
 ## Credits
 
-The hard part — reverse-engineering the proprietary `.cloupe` binary format at all (the header layout, byte-offset index block, matrix/projection encoding, and tiled image storage) — is not this package's work. It's [`cellgeni/cloupe`](https://github.com/cellgeni/cloupe), written by **Martin Prete** and **Nithin Mathew Joseph** of the Wellcome Sanger Institute's Cellular Genetics Informatics (cellgeni) team, AGPL-3.0 licensed. A pinned copy is vendored directly into this package at `src/loupe2py/_vendor/cloupe.py` (see that file's header for the exact commit) rather than kept as an external dependency, to eliminate a class of path-configuration bugs and pin an exact, tested parser version. Full license text: [`THIRD_PARTY_LICENSES/cellgeni-cloupe-AGPL-3.0.txt`](THIRD_PARTY_LICENSES/cellgeni-cloupe-AGPL-3.0.txt).
+The hard part — reverse-engineering the proprietary `.cloupe` binary format at all (the header layout, byte-offset index block, matrix/projection encoding, and tiled image storage) — is not this package's work. It's [`cellgeni/cloupe`](https://github.com/cellgeni/cloupe), written by **Martin Prete** and **Nithin Mathew Joseph** of the Wellcome Sanger Institute's Cellular Genetics Informatics (cellgeni) team, AGPL-3.0 licensed. A pinned copy is vendored directly into [`cloupe_extract`](cloupe_extract/), the extraction core `Loupe2Py` depends on, at `cloupe_extract/src/cloupe_extract/_vendor/cloupe.py` (see that file's header for the exact commit) rather than kept as an external dependency, to eliminate a class of path-configuration bugs and pin an exact, tested parser version. Full license text: [`THIRD_PARTY_LICENSES/cellgeni-cloupe-AGPL-3.0.txt`](THIRD_PARTY_LICENSES/cellgeni-cloupe-AGPL-3.0.txt).
 
-**Note:** vendoring this AGPL-3.0 code makes this package a combined work under AGPL-3.0 terms, so `Loupe2Py` is itself licensed **AGPL-3.0-or-later** — see [License](#license) below.
+**Note:** vendoring this AGPL-3.0 code makes `cloupe_extract` a combined work under AGPL-3.0 terms, and `Loupe2Py` depends on it inseparably in practice (there's no meaningful way to use `Loupe2Py` without it), so `Loupe2Py` is itself licensed **AGPL-3.0-or-later** too — see [License](#license) below.
 
 Also indebted to the [scverse](https://scverse.org/) ecosystem ([AnnData](https://anndata.readthedocs.io/), [scanpy](https://scanpy.readthedocs.io/), [squidpy](https://squidpy.readthedocs.io/)) for the conventions and reference outputs this package's Visium HD support was validated against, and to [10x Genomics' SpaceRanger](https://www.10xgenomics.com/support/software/space-ranger) for the official output used as ground truth (see [Validation](#validation)).
 
@@ -87,10 +87,10 @@ Also indebted to the [scverse](https://scverse.org/) ecosystem ([AnnData](https:
 
 Identical results to Loupe2R's own validation on the same sample, as expected — same extraction logic underneath. Also smoke-tested against real squidpy functions (`squidpy.gr.spatial_neighbors()`, `squidpy.pl.spatial_scatter()`), not just hand-written assertions.
 
-The `array_row`/`array_col` result relies on the same fix validated in Loupe2R: Visium HD barcodes encode their exact grid position directly (e.g. `s_008um_00269_00526-1` → row 269, column 526), and `loupe2py.extract.parse_array_position()` parses that directly rather than approximating it from pixel coordinates (which was found to disagree with the official grid by hundreds of bins due to a pixel-origin mismatch between the stitched tissue image and SpaceRanger's own coordinate frame). Non-HD barcodes fall back to the pixel-based approximation.
+The `array_row`/`array_col` result relies on the same fix validated in Loupe2R: Visium HD barcodes encode their exact grid position directly (e.g. `s_008um_00269_00526-1` → row 269, column 526), and `cloupe_extract.extract.parse_array_position()` parses that directly rather than approximating it from pixel coordinates (which was found to disagree with the official grid by hundreds of bins due to a pixel-origin mismatch between the stitched tissue image and SpaceRanger's own coordinate frame). Non-HD barcodes fall back to the pixel-based approximation.
 
 Reproduce this validation yourself (see `tests/test_integration_visium_hd.py`) by setting `LOUPE2PY_TEST_DIR` to a SpaceRanger Visium HD `outs/` directory containing `cloupe_008um.cloupe` and `binned_outputs/square_008um/`, and running `pytest` with the `test` extras installed.
 
 ## License
 
-AGPL-3.0-or-later (see `LICENSE`). This package vendors AGPL-3.0 code ([Credits](#credits) above) directly into its own source, which under AGPL-3.0's terms makes the combined work AGPL-3.0 as well. `THIRD_PARTY_LICENSES/` contains the full license text for the vendored code specifically.
+AGPL-3.0-or-later (see `LICENSE`). This package depends on `cloupe_extract`, which vendors AGPL-3.0 code ([Credits](#credits) above) directly into its own source — under AGPL-3.0's terms that makes `cloupe_extract` a combined work, and `Loupe2Py` inherits the same license as a practical matter, since it's not usable without `cloupe_extract`. `THIRD_PARTY_LICENSES/` contains the full license text for the vendored code specifically.

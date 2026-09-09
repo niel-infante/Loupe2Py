@@ -1,3 +1,11 @@
+# loupe2py 0.3.0
+
+## Breaking changes
+
+- **The `.cloupe` extraction core is now a separate package, `cloupe_extract`.** It previously lived inside `loupe2py` itself (`src/loupe2py/extract.py`, `src/loupe2py/_vendor/`), which was confusing for `Loupe2R` (the Seurat sibling package): installing a Python package literally named `loupe2py` to get Seurat support read as a naming mismatch. `cloupe_extract` now lives at `cloupe_extract/` in this same repo, is independently pip-installable, and `loupe2py` depends on it (declared in `pyproject.toml`, installed automatically). `Loupe2R` now depends on `cloupe_extract` directly instead of `loupe2py`.
+- `from loupe2py import cloupe_to_anndata, extract_cloupe` still works exactly as before — `extract_cloupe` is re-exported from `cloupe_extract` for convenience. Only direct imports of `loupe2py.extract` or `loupe2py._vendor` break; use `cloupe_extract.extract` instead (`pip install` already pulls `cloupe_extract` in as a dependency, no separate install step needed).
+- `loupe2py` remains **AGPL-3.0-or-later** — `cloupe_extract` is the package that actually vendors the AGPL-3.0-licensed `cellgeni/cloupe` parser now, and `loupe2py` inherits the same license as a practical matter, since it's not usable without `cloupe_extract`.
+
 # loupe2py 0.2.2
 
 ## Bug fix
