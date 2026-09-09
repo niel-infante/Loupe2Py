@@ -181,31 +181,81 @@ def stitch_tiles(cloupe_obj, target_level=None):
 # Spatial coordinates
 # ---------------------------------------------------------------------------
 
-def get_cellseg_projection(cloupe_obj):
-    """Return spatial coordinates from CellSegs (Visium HD, cell-segmentation mode --
-    a SpaceRanger 4.0+ analysis mode, distinct from binned mode, that assigns
-    transcripts to individual cells via image-based nucleus/cell segmentation;
-    each mode produces its own separate .cloupe file).
+def _polygon_centroid(ring):
+    """True area centroid of a simple polygon ring via the shoelace formula.
 
-    Centers are already in full-resolution image pixel coordinates (verified
-    empirically: aggregated ranges land inside each file's real
-    SpatialImageTiles dimensions without any further scaling -- no division
-    by MicronsPerPixel here, unlike an earlier version of this function).
-    BarcodeIndices maps each cell segment to a barcode; we average per barcode.
-
-    Returns dict with keys: pxl_col, pxl_row, bin_size_px, microns_per_pixel.
+    ring: sequence of [x, y] pairs (GeoJSON exterior ring; closed or not --
+    both work, since a redundant closing vertex contributes a zero-length
+    edge). Falls back to a plain vertex average for degenerate (zero-area)
+    rings, e.g. a 1-2 point sliver.
     """
-    cell_segs = cloupe_obj.index_block.get("CellSegs", [])
-    if not cell_segs:
-        return None
+    pts = np.asarray(ring, dtype=np.float64)
+    x, y = pts[:, 0], pts[:, 1]
+    x2, y2 = np.roll(x, -1), np.roll(y, -1)
+    cross = x * y2 - x2 * y
+    area2 = cross.sum()
+    if abs(area2) < 1e-9:
+        return float(x.mean()), float(y.mean())
+    cx = ((x + x2) * cross).sum() / (3 * area2)
+    cy = ((y + y2) * cross).sum() / (3 * area2)
+    return float(cx), float(cy)
 
-    cs = cell_segs[0]
-    mpp = cs.get("MicronsPerPixel")
-    if not mpp:
-        return None
 
-    n_cells = cs["RectCount"]
-    n_barcodes = cloupe_obj.matrices[0]["BarcodeCount"]
+def _cellseg_positions_from_geojson(cloupe_obj, geojson_field, barcodes, n_barcodes):
+    """Per-cell true area centroids from CellSegs' embedded GeoJSON boundaries.
+
+    This is the exact, complete cell-boundary data SpaceRanger's own official
+    pipeline uses -- confirmed byte-identical (coordinate-for-coordinate) to
+    real paired segmented_outputs/cell_segmentations.geojson on a real Visium
+    HD sample. Distinct from the coarser Centers/Sizes rect decomposition
+    below: rects are a compact, lossy tiling of each cell's mask (~2.1M rects
+    for ~148k cells in that sample) that only covers ~69% of the 2 um bins
+    SpaceRanger itself assigns to a cell; a naive rect-center average is
+    biased by that missing coverage. The polygon boundary has no such gap.
+
+    Returns (pxl_col, pxl_row, found) as float arrays of length n_barcodes;
+    found[i] is False where barcode i has no matching polygon (caller should
+    fall back to the rect-based estimate for those).
+    """
+    raw = cloupe_obj.read_block(geojson_field["Start"], geojson_field["End"])
+    gj = json.loads(raw)
+
+    # Map each barcode's own encoded cell id -> its index, parsed from the
+    # barcode string itself rather than reconstructed, so this doesn't
+    # depend on assuming a fixed zero-pad width or "-1" suffix.
+    cellid_to_idx = {}
+    for i, bc in enumerate(barcodes):
+        m = re.match(r"^cellid_(\d+)-\d+$", bc)
+        if m:
+            cellid_to_idx[int(m.group(1))] = i
+
+    pxl_col = np.full(n_barcodes, np.nan)
+    pxl_row = np.full(n_barcodes, np.nan)
+    found = np.zeros(n_barcodes, dtype=bool)
+
+    for feat in gj.get("features", []):
+        if feat.get("geometry", {}).get("type") != "Polygon":
+            continue
+        idx = cellid_to_idx.get(feat.get("properties", {}).get("cell_id"))
+        if idx is None:
+            continue
+        cx, cy = _polygon_centroid(feat["geometry"]["coordinates"][0])
+        pxl_col[idx] = cx
+        pxl_row[idx] = cy
+        found[idx] = True
+
+    return pxl_col, pxl_row, found
+
+
+def _cellseg_positions_from_rects(cloupe_obj, cs, n_barcodes):
+    """Per-cell position as the unweighted average of CellSegs rect centers.
+
+    Coarser fallback for files/barcodes without GeoJSON coverage -- see
+    get_cellseg_projection()'s docstring for why GeoJSON is preferred.
+
+    Returns (pxl_col, pxl_row, found) as float arrays of length n_barcodes.
+    """
+    n_rects = cs["RectCount"]
 
     raw_c = cloupe_obj.read_block(cs["Centers"]["Start"], cs["Centers"]["End"])
     # Struct-of-arrays layout: [x0, x1, ..., xN-1, y0, y1, ..., yN-1], NOT
@@ -221,10 +271,9 @@ def get_cellseg_projection(cloupe_obj):
     # signal too: per-segment corr(x, y) is ~0.99 under the wrong reshape
     # (implausible for real 2D tissue positions) and drops to a normal,
     # weak ~-0.15 under this one.
-    centers = np.frombuffer(raw_c, dtype=np.float64).reshape(2, n_cells).T
-    # NOTE: the CellSegs "Sizes" field (per-segment width/height, not read by
-    # this package today) almost certainly shares this same struct-of-arrays
-    # layout -- apply the same .reshape(2, n_cells).T if it's ever consumed.
+    centers = np.frombuffer(raw_c, dtype=np.float64).reshape(2, n_rects).T
+    # The CellSegs "Sizes" field (per-rect width/height) shares this same
+    # struct-of-arrays layout; used by the GeoJSON path above, not here.
 
     raw_bi = cloupe_obj.read_block(
         cs["BarcodeIndices"]["Start"], cs["BarcodeIndices"]["End"]
@@ -237,9 +286,68 @@ def get_cellseg_projection(cloupe_obj):
     assigned = bi >= 0
     bi, centers = bi[assigned], centers[assigned]
 
-    safe_cnt = np.maximum(np.bincount(bi, minlength=n_barcodes), 1)
+    counts = np.bincount(bi, minlength=n_barcodes)
+    safe_cnt = np.maximum(counts, 1)
     pxl_col = np.bincount(bi, weights=centers[:, 0], minlength=n_barcodes) / safe_cnt
     pxl_row = np.bincount(bi, weights=centers[:, 1], minlength=n_barcodes) / safe_cnt
+    found = counts > 0
+
+    return pxl_col, pxl_row, found
+
+
+def get_cellseg_projection(cloupe_obj):
+    """Return spatial coordinates from CellSegs (Visium HD, cell-segmentation mode --
+    a SpaceRanger 4.0+ analysis mode, distinct from binned mode, that assigns
+    transcripts to individual cells via image-based nucleus/cell segmentation;
+    each mode produces its own separate .cloupe file).
+
+    Prefers the embedded GeoJSON polygon boundaries (see
+    _cellseg_positions_from_geojson()) -- the exact cell shapes, not an
+    approximation -- and computes each cell's true area centroid from them.
+    Falls back to averaging the coarser Centers/Sizes rect decomposition
+    (_cellseg_positions_from_rects()) for any barcode GeoJSON doesn't cover,
+    or for the whole file if it has no GeoJSON field at all (older/unusual
+    files; not observed in any real file checked so far, but not assumed
+    universal either).
+
+    Returns dict with keys: pxl_col, pxl_row, bin_size_px, microns_per_pixel.
+    """
+    cell_segs = cloupe_obj.index_block.get("CellSegs", [])
+    if not cell_segs:
+        return None
+
+    cs = cell_segs[0]
+    mpp = cs.get("MicronsPerPixel")
+    if not mpp:
+        return None
+
+    barcodes = cloupe_obj.matrices[0]["Barcodes"]
+    n_barcodes = cloupe_obj.matrices[0]["BarcodeCount"]
+
+    pxl_col = np.full(n_barcodes, np.nan)
+    pxl_row = np.full(n_barcodes, np.nan)
+    found = np.zeros(n_barcodes, dtype=bool)
+
+    geojson_field = cs.get("GeoJSON")
+    if geojson_field is not None:
+        pxl_col, pxl_row, found = _cellseg_positions_from_geojson(
+            cloupe_obj, geojson_field, barcodes, n_barcodes
+        )
+
+    if not found.all():
+        rect_col, rect_row, rect_found = _cellseg_positions_from_rects(
+            cloupe_obj, cs, n_barcodes
+        )
+        need = ~found
+        pxl_col[need] = rect_col[need]
+        pxl_row[need] = rect_row[need]
+        found = found | rect_found
+
+    # Any barcode with no position from either source (never observed, but
+    # not structurally impossible) reports (0, 0) rather than NaN, matching
+    # this function's long-standing contract for "no data" cells.
+    pxl_col = np.nan_to_num(pxl_col, nan=0.0)
+    pxl_row = np.nan_to_num(pxl_row, nan=0.0)
 
     return {
         "pxl_col": pxl_col.tolist(),

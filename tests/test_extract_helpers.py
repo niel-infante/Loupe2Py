@@ -1,7 +1,11 @@
+import json
+
 import numpy as np
 import scipy.sparse
 
 from loupe2py.extract import (
+    _cellseg_positions_from_geojson,
+    _polygon_centroid,
     check_format_version,
     exclude_synthetic_totals,
     get_cellseg_projection,
@@ -95,9 +99,10 @@ def test_check_format_version_handles_missing_sections():
 class _FakeCloupeCellSegs:
     """Minimal fake supporting only what get_cellseg_projection() touches."""
 
-    def __init__(self, index_block, n_barcodes, blocks):
+    def __init__(self, index_block, n_barcodes, blocks, barcodes=None):
         self.index_block = index_block
-        self.matrices = [{"BarcodeCount": n_barcodes}]
+        barcodes = barcodes or [f"cellid_{i:09d}-1" for i in range(n_barcodes)]
+        self.matrices = [{"BarcodeCount": n_barcodes, "Barcodes": barcodes}]
         self._blocks = blocks  # {(start, end): bytes}
 
     def read_block(self, start, end, as_json=False, verbose=False):
@@ -139,6 +144,159 @@ def test_get_cellseg_projection_unscrambles_struct_of_arrays_centers():
     assert result["pxl_row"] == [1500.0, 10.0]  # mean(1000,2000), mean(5,15)
     assert result["bin_size_px"] is None
     assert result["microns_per_pixel"] == 1.5
+
+
+# ---------------------------------------------------------------------------
+# _polygon_centroid / _cellseg_positions_from_geojson / get_cellseg_projection
+# GeoJSON path -- CellSegs' embedded GeoJSON is the exact cell boundary data
+# SpaceRanger's own pipeline uses (confirmed byte-identical, coordinate for
+# coordinate, to a real paired segmented_outputs/cell_segmentations.geojson).
+# The rect-average fallback above is a coarser approximation that only covers
+# ~69% of the 2 um bins SpaceRanger itself assigns to a cell on a real
+# dataset checked; the true polygon centroid has no such gap and is what
+# get_cellseg_projection() should prefer whenever it's available.
+# ---------------------------------------------------------------------------
+
+def test_polygon_centroid_is_area_weighted_not_a_vertex_average():
+    # L-shaped hexagon: a 4x1 rectangle union a 1x2 rectangle sharing the
+    # corner at (1,1). True area centroid (by decomposition into those two
+    # rectangles, area-weighted): (1.5, 1.0). A naive vertex average of the
+    # 6 corners gives a different point, (1.667, 1.333) -- exactly the kind
+    # of bias this function exists to avoid for non-convex/irregular cells.
+    ring = [[0, 0], [4, 0], [4, 1], [1, 1], [1, 3], [0, 3]]
+    cx, cy = _polygon_centroid(ring)
+    assert (round(cx, 6), round(cy, 6)) == (1.5, 1.0)
+
+    naive_x = sum(p[0] for p in ring) / len(ring)
+    naive_y = sum(p[1] for p in ring) / len(ring)
+    assert (cx, cy) != (naive_x, naive_y)
+
+
+def test_polygon_centroid_of_a_simple_square():
+    ring = [[0, 0], [2, 0], [2, 2], [0, 2]]
+    cx, cy = _polygon_centroid(ring)
+    assert (cx, cy) == (1.0, 1.0)
+
+
+def test_polygon_centroid_winding_order_does_not_flip_sign():
+    # Same square, vertices listed clockwise instead of counter-clockwise --
+    # the centroid must come out identical either way (numerator and
+    # denominator both carry the signed area and cancel).
+    ring = [[0, 0], [0, 2], [2, 2], [2, 0]]
+    cx, cy = _polygon_centroid(ring)
+    assert (cx, cy) == (1.0, 1.0)
+
+
+def _fake_geojson_block(features):
+    body = json.dumps({"type": "FeatureCollection", "features": features}).encode()
+    return {"Start": 0, "End": len(body)}, {(0, len(body)): body}
+
+
+def test_cellseg_positions_from_geojson_uses_true_centroid_and_matches_barcode():
+    # Two cells: a plain square (cell_id 5) and the L-shape from above
+    # (cell_id 12), matched to barcodes by the numeric id embedded in each
+    # barcode string, not by list position.
+    features = [
+        {"type": "Feature", "geometry": {"type": "Polygon",
+            "coordinates": [[[0, 0], [2, 0], [2, 2], [0, 2]]]},
+         "properties": {"cell_id": 5}},
+        {"type": "Feature", "geometry": {"type": "Polygon",
+            "coordinates": [[[0, 0], [4, 0], [4, 1], [1, 1], [1, 3], [0, 3]]]},
+         "properties": {"cell_id": 12}},
+    ]
+    geojson_field, blocks = _fake_geojson_block(features)
+
+    class _Fake:
+        def read_block(self, start, end, as_json=False, verbose=False):
+            return blocks[(start, end)]
+
+    barcodes = ["cellid_000000012-1", "cellid_000000005-1"]  # deliberately out of order
+    pxl_col, pxl_row, found = _cellseg_positions_from_geojson(
+        _Fake(), geojson_field, barcodes, n_barcodes=2
+    )
+
+    assert found.tolist() == [True, True]
+    assert (round(pxl_col[0], 6), round(pxl_row[0], 6)) == (1.5, 1.0)  # barcode 0 -> cell 12 (L-shape)
+    assert (pxl_col[1], pxl_row[1]) == (1.0, 1.0)                       # barcode 1 -> cell 5 (square)
+
+
+def test_get_cellseg_projection_prefers_geojson_over_rects_when_both_present():
+    # cell_id 5's rect-average (below) would give a biased position; the
+    # GeoJSON polygon centroid should win instead.
+    features = [{"type": "Feature", "geometry": {"type": "Polygon",
+                 "coordinates": [[[0, 0], [2, 0], [2, 2], [0, 2]]]},
+                 "properties": {"cell_id": 5}}]
+    geojson_field, geojson_blocks = _fake_geojson_block(features)
+
+    # A single rect for the same barcode centered somewhere else entirely --
+    # if the fallback fired, the result would be (100.0, 100.0), not (1, 1).
+    centers_bytes = np.array([100.0, 100.0], dtype=np.float64).tobytes()  # x=[100], y=[100]
+    bi_bytes = np.array([0], dtype=np.int32).tobytes()
+    centers_range = (1000, 1000 + len(centers_bytes))
+    bi_range = (2000, 2000 + len(bi_bytes))
+
+    blocks = dict(geojson_blocks)
+    blocks[centers_range] = centers_bytes
+    blocks[bi_range] = bi_bytes
+
+    cl = _FakeCloupeCellSegs(
+        index_block={
+            "CellSegs": [{
+                "MicronsPerPixel": 1.0,
+                "RectCount": 1,
+                "Centers": {"Start": centers_range[0], "End": centers_range[1]},
+                "BarcodeIndices": {"Start": bi_range[0], "End": bi_range[1]},
+                "GeoJSON": geojson_field,
+            }]
+        },
+        n_barcodes=1,
+        blocks=blocks,
+        barcodes=["cellid_000000005-1"],
+    )
+
+    result = get_cellseg_projection(cl)
+    assert (result["pxl_col"][0], result["pxl_row"][0]) == (1.0, 1.0)
+
+
+def test_get_cellseg_projection_falls_back_to_rects_for_barcodes_missing_from_geojson():
+    # cell_id 5 has a GeoJSON polygon; barcode 1 (cell_id 7) does not, and
+    # must fall back to its rect-average instead of being left as (0, 0).
+    features = [{"type": "Feature", "geometry": {"type": "Polygon",
+                 "coordinates": [[[0, 0], [2, 0], [2, 2], [0, 2]]]},
+                 "properties": {"cell_id": 5}}]
+    geojson_field, geojson_blocks = _fake_geojson_block(features)
+
+    # rect 0 -> barcode 0 (cell 5, ignored since GeoJSON covers it);
+    # rect 1 -> barcode 1 (cell 7, no GeoJSON entry, must use this rect).
+    x = np.array([9999.0, 50.0])
+    y = np.array([9999.0, 60.0])
+    centers_bytes = np.concatenate([x, y]).astype(np.float64).tobytes()
+    bi_bytes = np.array([0, 1], dtype=np.int32).tobytes()
+    centers_range = (1000, 1000 + len(centers_bytes))
+    bi_range = (2000, 2000 + len(bi_bytes))
+
+    blocks = dict(geojson_blocks)
+    blocks[centers_range] = centers_bytes
+    blocks[bi_range] = bi_bytes
+
+    cl = _FakeCloupeCellSegs(
+        index_block={
+            "CellSegs": [{
+                "MicronsPerPixel": 1.0,
+                "RectCount": 2,
+                "Centers": {"Start": centers_range[0], "End": centers_range[1]},
+                "BarcodeIndices": {"Start": bi_range[0], "End": bi_range[1]},
+                "GeoJSON": geojson_field,
+            }]
+        },
+        n_barcodes=2,
+        blocks=blocks,
+        barcodes=["cellid_000000005-1", "cellid_000000007-1"],
+    )
+
+    result = get_cellseg_projection(cl)
+    assert (result["pxl_col"][0], result["pxl_row"][0]) == (1.0, 1.0)   # from GeoJSON
+    assert (result["pxl_col"][1], result["pxl_row"][1]) == (50.0, 60.0)  # from rect fallback
 
 
 # ---------------------------------------------------------------------------

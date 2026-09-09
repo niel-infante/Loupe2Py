@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "loupe2py"
-version = "0.2.1"
+version = "0.2.2"
 description = "Import 10x Genomics .cloupe files (including Visium HD) into squidpy-ready AnnData objects"
 readme = "README.md"
 requires-python = ">=3.9"

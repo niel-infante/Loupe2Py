@@ -1,3 +1,12 @@
+# loupe2py 0.2.2
+
+## Bug fix
+
+- **Fixed imprecise cell-segmentation positions by reading the exact boundary data the file already contained.** `get_cellseg_projection()` computed each cell's position by averaging the centers of `CellSegs`' `Centers`/`Sizes` rects — a coarse rectangular decomposition of the cell mask. On a real paired sample (Visium HD Human Kidney, SpaceRanger 4.0.1), that rect decomposition covered only ~69% of the 2 µm bins SpaceRanger itself assigns to each cell, biasing the averaged position by a small but real amount (mean ~7 px / ~2 µm off official ground truth).
+- `CellSegs` also carries a `GeoJSON` field — the exact polygon boundary for every cell, confirmed coordinate-for-coordinate identical to SpaceRanger's own `segmented_outputs/cell_segmentations.geojson` — that was never read. `get_cellseg_projection()` now computes each cell's true area centroid from this polygon data via the shoelace formula, and falls back to the rect-average only for the rare barcode (or whole file) without `GeoJSON`. Re-validated against the same real kidney sample: position now matches official ground truth **exactly** (0.0 px mean/median/max distance across all 148,056 cells), not just closely.
+- Confirmed all 6 real cell-segmented `.cloupe` files checked across this project (5 private, 1 public) have `GeoJSON` present, so this is expected to be the common path, not an edge case.
+- If you've used `cloupe_to_seurat()`/`cloupe_to_anndata()` on cell-segmentation-mode `.cloupe` files, re-extract for exact positions; the previous result was close (small px-scale bias) but not exact.
+
 # loupe2py 0.2.1
 
 ## Bug fix

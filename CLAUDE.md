@@ -29,3 +29,13 @@ Re-validate against a real sample from the new version before assuming compatibi
 - **New optional `.cloupe` sections** (beyond `Matrices`/`Projections`/`CellSegs`/`Clusterings`/`Analyses`/`Runs`/`Metrics`) that a newer release might start populating.
 
 Add a new version to `_TESTED_VERSIONS` only after directly confirming exact-match concordance against that version's real paired SpaceRanger output (barcode overlap, per-barcode count values, array position, pixel coordinates) — not just that extraction runs without error.
+
+## Future work
+
+**Expose full cell-segmentation polygon boundaries, not just centroids.** `get_cellseg_projection()` (fixed in 0.2.2) reads `CellSegs.GeoJSON` to compute each cell's true area centroid — exact, but still collapses every cell down to one point. The full polygon boundary is already parsed in memory at that point and then discarded. Seurat has a native, purpose-built object for real cell shapes (`FOV`/`Segmentation`, confirmed via `CreateSegmentation()`'s actual source — see `Loupe2R`'s own `CLAUDE.md` for the exact API), and `Loupe2R::cloupe_to_seurat()` could build one instead of the plain centroid-only spatial assay it does today. Scoped but not started:
+
+- `extract_cloupe()` would need a new opt-in output (e.g. `include_boundaries=True`, matching the `include_image=True` pattern) writing a long-format `cell_boundaries.csv`: `barcode, x, y`, one row per polygon vertex — a direct flatten of the same `GeoJSON` rings `get_cellseg_projection()` already reads. Real-data scale: ~148k cells × ~15–20 vertices each on the Human Kidney FFPE dataset, so a few million rows — comparable to `tissue_positions.csv` for HD binned data, not free but tractable.
+- Only meaningful for cell-segmentation-mode files (binned HD has no `CellSegs`).
+- The harder half of this work is entirely on the `Loupe2R` side (Seurat object construction), not here — see that repo's `CLAUDE.md`.
+
+**Python/AnnData equivalent is a separate, larger decision, not a smaller version of the above.** Plain `AnnData` has no native polygon-boundary slot. The scverse-idiomatic answer is `spatialdata` (`ShapesModel`, GeoPandas-backed) — the same package this project's own README already points Visium HD users toward for anything beyond single-resolution `AnnData`. Producing real polygon output from `Loupe2Py` properly likely means an additional `spatialdata`-object output path, not bolting polygons onto `AnnData` in some ad hoc, non-idiomatic way. Treat this as its own scoping exercise when it comes up, not an assumed extension of the Seurat work above.
