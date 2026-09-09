@@ -55,6 +55,7 @@ def cloupe_to_anndata(
     include_image=True,
     outdir=None,
     keep_files=False,
+    version_check=True,
 ):
     """Import a 10x Genomics .cloupe file into a squidpy-ready AnnData object.
 
@@ -80,6 +81,13 @@ def cloupe_to_anndata(
     keep_files : bool
         If True and outdir is None, keep the intermediate files (useful for
         debugging or cross-validation).
+    version_check : bool
+        If True (default), raise cloupe_extract.UnvalidatedFormatVersionError
+        when the file's internal .cloupe format version(s) haven't been
+        validated against real paired SpaceRanger output. Pass False to
+        proceed anyway (a warning is still printed and recorded in
+        uns['cloupe_format_info']) -- you are then responsible for
+        independently verifying the result before trusting it.
 
     Returns
     -------
@@ -101,7 +109,9 @@ def cloupe_to_anndata(
     try:
         print(f"Extracting from {os.path.basename(cloupe_path)} "
               "(may take several minutes)...")
-        _extract.extract_cloupe(cloupe_path, outdir, include_image=include_image)
+        _extract.extract_cloupe(
+            cloupe_path, outdir, include_image=include_image, version_check=version_check
+        )
 
         print("Building AnnData object...")
 

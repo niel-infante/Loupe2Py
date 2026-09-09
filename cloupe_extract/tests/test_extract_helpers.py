@@ -1,13 +1,18 @@
 import json
+import tempfile
 
 import numpy as np
+import pytest
 import scipy.sparse
 
+import cloupe_extract.extract as extract_module
 from cloupe_extract.extract import (
+    UnvalidatedFormatVersionError,
     _cellseg_positions_from_geojson,
     _polygon_centroid,
     check_format_version,
     exclude_synthetic_totals,
+    extract_cloupe,
     get_cellseg_projection,
     parse_array_position,
 )
@@ -87,6 +92,51 @@ def test_check_format_version_handles_missing_sections():
     assert result["versions"]["run"] is None
     assert result["versions"]["matrix"] is None
     assert result["versions"]["projection"] == []
+
+
+# ---------------------------------------------------------------------------
+# extract_cloupe() -- version_check gate (raises by default, opt out with
+# version_check=False; the caller then owns the risk, not the library)
+# ---------------------------------------------------------------------------
+
+class _FakeCloupeUnrecognizedVersion(_FakeCloupe):
+    """A stand-in for _vendor.cloupe.Cloupe reporting an unvalidated version.
+
+    matrices=[] lets a version_check=False run prove it got *past* the
+    version gate (it fails later, on `cl.matrices[0]`, with an ordinary
+    IndexError -- not UnvalidatedFormatVersionError) without needing a full
+    fake matrix/barcode pipeline just to test this one control-flow branch.
+    """
+
+    def __init__(self):
+        super().__init__(
+            header={"version": "10.0.0"},
+            index_block={
+                "Runs": [{"FormatVersion": "3.0.0"}],
+                "Matrices": [{"FormatVersion": "6.3.0"}],
+                "Projections": [{"FormatVersion": "4.1.0"}],
+            },
+        )
+        self.matrices = []
+
+
+def test_extract_cloupe_raises_by_default_on_unvalidated_version(monkeypatch):
+    monkeypatch.setattr(extract_module, "Cloupe", lambda path, load_csr=True: _FakeCloupeUnrecognizedVersion())
+    with tempfile.TemporaryDirectory() as outdir:
+        with pytest.raises(UnvalidatedFormatVersionError, match="container"):
+            extract_cloupe("fake.cloupe", outdir)
+        # Provenance survives the failure: the caller can still see exactly
+        # what was detected, even though extraction refused to proceed.
+        with open(f"{outdir}/format_info.json") as f:
+            fmt_info = json.load(f)
+        assert any("container" in w for w in fmt_info["warnings"])
+
+
+def test_extract_cloupe_version_check_false_proceeds_past_the_gate(monkeypatch):
+    monkeypatch.setattr(extract_module, "Cloupe", lambda path, load_csr=True: _FakeCloupeUnrecognizedVersion())
+    with tempfile.TemporaryDirectory() as outdir:
+        with pytest.raises(IndexError):
+            extract_cloupe("fake.cloupe", outdir, version_check=False)
 
 
 # ---------------------------------------------------------------------------

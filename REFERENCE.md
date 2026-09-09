@@ -15,6 +15,7 @@ cloupe_to_anndata(
     include_image=True,
     outdir=None,
     keep_files=False,
+    version_check=True,
 )
 ```
 
@@ -24,26 +25,27 @@ Imports one `.cloupe` file — Visium HD, in either binned or cell-segmentation 
 - `library_id` — identifier for this sample; becomes the `uns['spatial']` key and `obs['library_id']`. Defaults to the `.cloupe` filename with its extension stripped.
 - `include_image` — whether to reconstruct and embed the tissue image.
 - `outdir`, `keep_files` — control where intermediate extracted files go; `None`/`False` uses an auto-deleted temp directory.
+- `version_check` — if `True` (default), raise `cloupe_extract.UnvalidatedFormatVersionError` when the file reports a `.cloupe` internal format version outside the validated set, before extracting anything. `False` proceeds anyway (a warning is printed instead); you're then responsible for independently verifying the result.
 
 Returns an `anndata.AnnData` object.
 
 ### `extract_cloupe()`
 
 ```python
-extract_cloupe(cloupe_path, outdir, include_image=True)
+extract_cloupe(cloupe_path, outdir, include_image=True, version_check=True)
 ```
 
-Lower-level: parses a `.cloupe` file and writes the extracted data as generic, SpaceRanger-convention-like files into `outdir` (`matrix.mtx.gz`, `barcodes.tsv.gz`, `features.tsv.gz`, `tissue_positions.csv`, `scalefactors_json.json`, `tissue_hires_image.png`, `projections.csv`, `clusterings.csv`, `celltracks.csv`, `format_info.json`) — no `AnnData` object is built. `cloupe_to_anndata()` calls this internally; call it directly if you want the raw files instead (e.g., to point another tool at them, or to build a different object type entirely). Implemented in [`cloupe_extract`](cloupe_extract/), the standalone extraction package this package depends on, and re-exported here (`from loupe2py import extract_cloupe`) for convenience — `from cloupe_extract import extract_cloupe` gets you the identical function. This is also what `Loupe2R::cloupe_to_seurat()` calls directly via `reticulate`, without going through `loupe2py` at all.
+Lower-level: parses a `.cloupe` file and writes the extracted data as generic, SpaceRanger-convention-like files into `outdir` (`matrix.mtx.gz`, `barcodes.tsv.gz`, `features.tsv.gz`, `tissue_positions.csv`, `scalefactors_json.json`, `tissue_hires_image.png`, `projections.csv`, `clusterings.csv`, `celltracks.csv`, `format_info.json`) — no `AnnData` object is built. `cloupe_to_anndata()` calls this internally; call it directly if you want the raw files instead (e.g., to point another tool at them, or to build a different object type entirely). Implemented in [`cloupe_extract`](cloupe_extract/), the standalone extraction package this package depends on, and re-exported here (`from loupe2py import extract_cloupe`) for convenience — `from cloupe_extract import extract_cloupe` gets you the identical function. This is also what `Loupe2R::cloupe_to_seurat()` calls directly via `reticulate`, without going through `loupe2py` at all. Same `version_check` behavior as above; raises `UnvalidatedFormatVersionError` (also re-exported as `loupe2py.UnvalidatedFormatVersionError`) by default.
 
 Returns `outdir`.
 
 ### CLI
 
 ```bash
-python -m cloupe_extract.extract <cloupe_path> <outdir>
+python -m cloupe_extract.extract <cloupe_path> <outdir> [--no-version-check]
 ```
 
-Command-line wrapper around `extract_cloupe()`, for use outside Python (a shell script, a pipeline step). Provided by `cloupe_extract`, not `loupe2py` itself.
+Command-line wrapper around `extract_cloupe()`, for use outside Python (a shell script, a pipeline step). Provided by `cloupe_extract`, not `loupe2py` itself. `--no-version-check` is the CLI equivalent of `version_check=False`.
 
 ## Internal
 

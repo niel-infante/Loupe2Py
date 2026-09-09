@@ -1,3 +1,10 @@
+# loupe2py 0.4.0
+
+## Breaking changes
+
+- **An unrecognized `.cloupe` format version now aborts extraction by default, instead of just warning.** Previously, `cloupe_to_anndata()`/`extract_cloupe()` printed a warning and extracted anyway when a file's internal format version fell outside the validated set — silently guessing on an undocumented, reverse-engineered format is the wrong default for a data-recovery tool. Both functions now raise `cloupe_extract.UnvalidatedFormatVersionError` (re-exported as `loupe2py.UnvalidatedFormatVersionError`) before extracting anything, unless called with the new `version_check=False`, which restores the previous warn-and-proceed behavior and puts the responsibility for verifying the result on the caller.
+- If you extract files whose format versions aren't yet in `cloupe_extract`'s validated set, either get that version added (open an issue with a paired SpaceRanger sample) or pass `version_check=False` explicitly.
+
 # loupe2py 0.3.0
 
 ## Breaking changes

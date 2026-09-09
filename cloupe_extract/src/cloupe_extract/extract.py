@@ -6,8 +6,13 @@ Usage (library):
     from cloupe_extract.extract import extract_cloupe
     extract_cloupe("sample.cloupe", "/path/to/outdir")
 
+    # If the file reports an unvalidated internal format version, the call
+    # above raises UnvalidatedFormatVersionError instead of guessing. Opt in
+    # to the old warn-and-proceed behavior explicitly:
+    extract_cloupe("sample.cloupe", "/path/to/outdir", version_check=False)
+
 Usage (CLI):
-    python -m cloupe_extract.extract <cloupe_path> <outdir>
+    python -m cloupe_extract.extract <cloupe_path> <outdir> [--no-version-check]
 
 Outputs written to outdir:
     matrix.mtx.gz           - sparse count matrix (Market Exchange format)
@@ -20,7 +25,9 @@ Outputs written to outdir:
     clusterings.csv          - Spaceranger graph and k-means cluster labels
     celltracks.csv           - user-created annotations (if any)
     format_info.json         - detected .cloupe format versions + any
-                                unvalidated-version warnings
+                                unvalidated-version warnings (written even
+                                when version_check=True raises, so the
+                                detected versions are still on record)
 
 Requires: scipy, numpy, Pillow. The .cloupe binary parser (cellgeni/cloupe)
 is vendored in cloupe_extract._vendor.cloupe -- no external install or path
@@ -60,14 +67,27 @@ from ._vendor.cloupe import Cloupe
 # Known-good format versions, seeded from real Visium HD .cloupe files in
 # both binned and cell-segmentation modes (multiple samples/labs; same
 # values validated for Loupe2R). Grow these sets as new files are
-# validated; an unrecognized version triggers a warning, not a failure,
-# since the parser may well still be correct -- it just hasn't been checked.
+# validated; an unrecognized version raises UnvalidatedFormatVersionError
+# by default, since the parser may well still be correct -- it just hasn't
+# been checked -- but callers must opt in (extract_cloupe(..., version_check=False))
+# to accept that risk rather than having it silently absorbed as a warning.
 _TESTED_VERSIONS = {
     "container": {"9.0.0", "8.0.0"},
     "run": {"3.0.0"},
     "matrix": {"6.3.0", "6.2.0"},
     "projection": {"4.1.0"},
 }
+
+
+class UnvalidatedFormatVersionError(RuntimeError):
+    """Raised when a .cloupe file reports internal format version(s) outside
+    _TESTED_VERSIONS and extract_cloupe() was not called with version_check=False.
+
+    The parser may well still handle the file correctly -- this format
+    version combination just hasn't been checked against real paired
+    SpaceRanger output. Catch this specifically, or pass version_check=False,
+    to proceed anyway.
+    """
 
 
 def check_format_version(cloupe_obj):
@@ -499,7 +519,7 @@ def exclude_synthetic_totals(feature_ids, feature_names, csr):
 # Main extraction function
 # ---------------------------------------------------------------------------
 
-def extract_cloupe(cloupe_path, outdir, include_image=True):
+def extract_cloupe(cloupe_path, outdir, include_image=True, version_check=True):
     """Extract everything from a .cloupe file into outdir.
 
     Parameters
@@ -510,11 +530,24 @@ def extract_cloupe(cloupe_path, outdir, include_image=True):
         Output directory (created if it does not exist).
     include_image : bool
         Whether to stitch and save the tissue image.
+    version_check : bool
+        If True (default), raise UnvalidatedFormatVersionError when the
+        file's internal format version(s) fall outside _TESTED_VERSIONS,
+        before any data is extracted. Pass False to instead proceed anyway
+        (the previous default behavior): a warning is still printed and
+        recorded in format_info.json, but extraction continues -- the
+        caller is then responsible for independently verifying the result.
 
     Returns
     -------
     str
         Path to outdir.
+
+    Raises
+    ------
+    UnvalidatedFormatVersionError
+        If version_check is True (the default) and the file reports a
+        format version combination outside _TESTED_VERSIONS.
     """
     import logging
     logging.getLogger().setLevel(logging.WARNING)
@@ -525,13 +558,28 @@ def extract_cloupe(cloupe_path, outdir, include_image=True):
     cl = Cloupe(cloupe_path, load_csr=True)
 
     # Check internal format versions against the known-tested set before
-    # trusting anything else in the file; write the result for callers to
-    # surface as a warning (and to stash as object provenance) regardless.
+    # trusting anything else in the file. By default this is a hard stop --
+    # the parser may well still be correct, but that hasn't been checked,
+    # and silently guessing is exactly the failure mode a data-recovery tool
+    # shouldn't have. version_check=False downgrades this to a warning and
+    # puts the responsibility explicitly on the caller.
     fmt_info = check_format_version(cl)
     for w in fmt_info["warnings"]:
         print(f"[cloupe] WARNING: {w}", flush=True)
-    with open(os.path.join(outdir, "format_info.json"), "w") as f:
+    format_info_path = os.path.join(outdir, "format_info.json")
+    with open(format_info_path, "w") as f:
         json.dump(fmt_info, f, indent=2)
+    if fmt_info["warnings"] and version_check:
+        raise UnvalidatedFormatVersionError(
+            f"{os.path.basename(cloupe_path)} reports .cloupe format version(s) "
+            "that have not been validated against real paired SpaceRanger "
+            "output:\n" + "\n".join(f"  - {w}" for w in fmt_info["warnings"]) +
+            "\nThe parser may still be correct -- it just hasn't been checked "
+            "for this specific version combination. Pass version_check=False "
+            "to extract_cloupe() to proceed anyway; you are then responsible "
+            "for independently verifying the result before trusting it. "
+            f"(Detected versions were written to {format_info_path}.)"
+        )
 
     matrix = cl.matrices[0]
     barcodes = matrix["Barcodes"]
@@ -700,6 +748,10 @@ def extract_cloupe(cloupe_path, outdir, include_image=True):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python -m cloupe_extract.extract <cloupe_path> <outdir>")
+        print(
+            "Usage: python -m cloupe_extract.extract <cloupe_path> <outdir> "
+            "[--no-version-check]"
+        )
         sys.exit(1)
-    extract_cloupe(sys.argv[1], sys.argv[2])
+    _version_check = "--no-version-check" not in sys.argv[3:]
+    extract_cloupe(sys.argv[1], sys.argv[2], version_check=_version_check)

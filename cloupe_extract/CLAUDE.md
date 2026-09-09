@@ -18,9 +18,31 @@ This package was split out of `loupe2py` into its own installable package so tha
 
 Real-data integration tests (`test_integration_visium_hd.py`, `test_integration_cellseg.py`) live in `loupe2py`'s own `tests/` directory one level up, not here — they exercise the full `loupe2py` → `cloupe_extract` path end to end, gated by env vars since the fixtures live outside the repo.
 
+## What's vendored vs. novel, per extracted item
+
+`cellgeni/cloupe` (vendored in `_vendor/cloupe.py`) is a low-level binary-container reader — it decodes the header, byte-offset index, and raw section contents generically. Everything about *which* sections matter for Visium HD, how to interpret them, and how to turn them into usable output is this project's own work. Per item actually extracted:
+
+| Extracted item | `.cloupe` section(s) | `cellgeni/cloupe` provides | Novel (this project) |
+|---|---|---|---|
+| Count matrix (barcodes × features, sparse) | `Matrices` | **Yes** — full parse: `Barcodes`, `FeatureIds`, `FeatureNames`, `UMICounts`, CSR/CSC arrays | Feature×barcode → obs×var transpose; MTX/AnnData serialization; `exclude_synthetic_totals()` |
+| Barcode / feature ID and name lists | `Matrices` | **Yes** — same section | Re-serialization as `barcodes.tsv.gz`/`features.tsv.gz` (10x convention) |
+| UMAP / other non-spatial embeddings | `Projections` | **Yes**, generically | Filtering `Spatial`/`Fiducials` out; writing the rest as `obsm['X_<name>']`/Seurat `DimReducObject`s |
+| User-created Loupe Browser cell tracks | `CellTracks` | **Yes** — full parse | Re-serialized as `celltracks.csv`/`obs` columns |
+| Visium HD spatial pixel coordinates (bin-level) | `Projections` (`Spatial`) | **Partial** — same generic decode as UMAP | Recognizing `Spatial` specifically; 3rd array as `bin_size_px`; `CellSegs` fallback |
+| Visium HD array row/column (grid position) | *(barcode string)* | No | `parse_array_position()` parses it directly from the barcode string; fixes a disagreement (up to ~1,400 bins) from the earlier pixel-rounding approach |
+| Cell-segmentation spatial coordinates | `CellSegs` | **No** — section untouched by their code | Exact polygon-boundary area centroid via `CellSegs.GeoJSON` (`loupe2py` 0.2.2, pre-split); also fixed a diagonal-scrambling `Centers` layout bug (`loupe2py` 0.1.1, pre-split) |
+| Tissue image (full-resolution, stitched) | `SpatialImageTiles` | **No** — absent from shipped code | `stitch_tiles()`: tile-pyramid zoom selection, positioning/cropping, RGB normalization |
+| Space Ranger graph/k-means clusterings | `Clusterings` | **No** — never read by their code | `read_clusterings()`: int16 group-key decode against a groups metadata list |
+| Scale factors (spot diameter, hires/lowres, bin size) | *(derived)* | No | Derived from `bin_size_px`/microns-per-pixel/image dimensions |
+| Format-version compatibility check | header, per-section `FormatVersion` | **Partial** — fields are present, but nothing checks them | `check_format_version()` against `_TESTED_VERSIONS`, enforced by default (raises `UnvalidatedFormatVersionError`, see below) |
+| Seurat/AnnData object assembly | *(assembly)* | **No** — their `to_anndata()` is bare, no spatial/image convention | `cloupe_to_anndata()` (`loupe2py`), `cloupe_to_seurat()` (`Loupe2R`) — downstream of this package, listed here for completeness |
+| Multi-resolution combination | *(assembly)* | N/A | `combine_cloupe_bins()` (`Loupe2R` only) — downstream of this package, listed here for completeness |
+
+This was originally a table in the JBT paper draft (`loupe2r.md`); it was cut for length and moved here, since this is where it stays accurate as the code changes.
+
 ## Format-version guard
 
-`check_format_version()` compares a file's internal `container`/`run`/`matrix`/`projection` format-version fields against `_TESTED_VERSIONS` in `extract.py`. An unrecognized version triggers a warning, not a failure — the parser may well still be correct, it just hasn't been checked. Extend `_TESTED_VERSIONS` whenever a new combination is actually validated against real paired SpaceRanger output, not just assumed compatible.
+`check_format_version()` compares a file's internal `container`/`run`/`matrix`/`projection` format-version fields against `_TESTED_VERSIONS` in `extract.py` and returns the detected versions plus any warnings — it never raises itself, it's a pure inspection function. `extract_cloupe()` is what acts on the result: by default (`version_check=True`) it raises `UnvalidatedFormatVersionError` before extracting anything if any warning was produced, since the parser may well still be correct but that hasn't been checked, and a data-recovery tool guessing silently is the wrong default. `version_check=False` downgrades this back to a printed warning and lets extraction proceed — the caller is then explicitly responsible for verifying the result. `format_info.json` (detected versions + warnings) is written either way, including on the raising path, so provenance survives a refusal. Extend `_TESTED_VERSIONS` whenever a new combination is actually validated against real paired SpaceRanger output, not just assumed compatible.
 
 ## When a new SpaceRanger version is released
 
