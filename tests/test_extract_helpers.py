@@ -1,6 +1,12 @@
 import numpy as np
+import scipy.sparse
 
-from loupe2py.extract import check_format_version, get_cellseg_projection, parse_array_position
+from loupe2py.extract import (
+    check_format_version,
+    exclude_synthetic_totals,
+    get_cellseg_projection,
+    parse_array_position,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +139,47 @@ def test_get_cellseg_projection_unscrambles_struct_of_arrays_centers():
     assert result["pxl_row"] == [1500.0, 10.0]  # mean(1000,2000), mean(5,15)
     assert result["bin_size_px"] is None
     assert result["microns_per_pixel"] == 1.5
+
+
+# ---------------------------------------------------------------------------
+# exclude_synthetic_totals -- regression test for the "3x inflated counts"
+# bug: every .cloupe file's Matrices section appends "type_sum_<FeatureType>"
+# and "genome_sum_<Reference>" rows holding each barcode's FULL total, which
+# extract_cloupe() previously wrote out as if they were real genes.
+# ---------------------------------------------------------------------------
+
+def test_exclude_synthetic_totals_drops_type_and_genome_sum_rows():
+    feature_ids = ["ENSG00000001", "ENSG00000002", "type_sum_Gene Expression", "genome_sum_GRCh38"]
+    feature_names = ["GeneA", "GeneB", "Gene Expression Sum", "GRCh38 Sum"]
+    # barcode 0: GeneA=1, GeneB=2, sums=3,3 ; barcode 1: GeneA=4, GeneB=0, sums=4,4
+    csr = scipy.sparse.csr_matrix(np.array([
+        [1, 4],
+        [2, 0],
+        [3, 4],
+        [3, 4],
+    ]))
+
+    ids, names, filtered_csr, excluded = exclude_synthetic_totals(feature_ids, feature_names, csr)
+
+    assert ids == ["ENSG00000001", "ENSG00000002"]
+    assert names == ["GeneA", "GeneB"]
+    assert excluded == ["type_sum_Gene Expression", "genome_sum_GRCh38"]
+    assert np.array_equal(filtered_csr.toarray(), [[1, 4], [2, 0]])
+    # the real per-barcode total no longer includes the synthetic rows
+    assert np.asarray(filtered_csr.sum(axis=0)).ravel().tolist() == [3, 4]
+
+
+def test_exclude_synthetic_totals_is_a_no_op_when_nothing_to_drop():
+    feature_ids = ["ENSG00000001", "ENSG00000002"]
+    feature_names = ["GeneA", "GeneB"]
+    csr = scipy.sparse.csr_matrix(np.array([[1, 4], [2, 0]]))
+
+    ids, names, filtered_csr, excluded = exclude_synthetic_totals(feature_ids, feature_names, csr)
+
+    assert ids == feature_ids
+    assert names == feature_names
+    assert excluded == []
+    assert np.array_equal(filtered_csr.toarray(), csr.toarray())
 
 
 def test_get_cellseg_projection_drops_unassigned_segments():

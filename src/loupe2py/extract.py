@@ -63,9 +63,9 @@ from ._vendor.cloupe import Cloupe
 # validated; an unrecognized version triggers a warning, not a failure,
 # since the parser may well still be correct -- it just hasn't been checked.
 _TESTED_VERSIONS = {
-    "container": {"9.0.0"},
+    "container": {"9.0.0", "8.0.0"},
     "run": {"3.0.0"},
-    "matrix": {"6.3.0"},
+    "matrix": {"6.3.0", "6.2.0"},
     "projection": {"4.1.0"},
 }
 
@@ -353,6 +353,41 @@ def read_clusterings(cloupe_obj):
 
 
 # ---------------------------------------------------------------------------
+# Synthetic total rows
+# ---------------------------------------------------------------------------
+
+def exclude_synthetic_totals(feature_ids, feature_names, csr):
+    """Drop the .cloupe format's built-in per-file total rows.
+
+    Every .cloupe file's Matrices section appends synthetic rows after the
+    real features -- one "type_sum_<FeatureType>" row per feature type and
+    one "genome_sum_<Reference>" row per reference genome -- each holding
+    that barcode's FULL total for the category, not a real gene's count.
+    Left in, these silently inflate every downstream total (nCount /
+    percent.mt) and show up as bogus "genes" (e.g. "type_sum_Gene
+    Expression"). Verified against paired official SpaceRanger output: once
+    these rows are excluded and the rest ID-aligned, every real (gene,
+    barcode) count matches exactly -- this is a pure extra-rows issue, not a
+    value-corruption one.
+
+    Returns (feature_ids, feature_names, csr, excluded_ids) -- all three
+    inputs filtered (or returned as-is, with excluded_ids == [], when there
+    is nothing to drop).
+    """
+    real_mask = np.array([
+        not (fid.startswith("type_sum_") or fid.startswith("genome_sum_"))
+        for fid in feature_ids
+    ])
+    if real_mask.all():
+        return feature_ids, feature_names, csr, []
+
+    excluded = [fid for fid, keep in zip(feature_ids, real_mask) if not keep]
+    feature_ids = [fid for fid, keep in zip(feature_ids, real_mask) if keep]
+    feature_names = [fn for fn, keep in zip(feature_names, real_mask) if keep]
+    return feature_ids, feature_names, csr[real_mask, :], excluded
+
+
+# ---------------------------------------------------------------------------
 # Main extraction function
 # ---------------------------------------------------------------------------
 
@@ -396,7 +431,6 @@ def extract_cloupe(cloupe_path, outdir, include_image=True):
     feature_names = matrix["FeatureNames"]
     n_features = matrix["FeatureCount"]
     n_barcodes = matrix["BarcodeCount"]
-    print(f"[cloupe] {n_features:,} features x {n_barcodes:,} barcodes", flush=True)
 
     # Structural sanity checks: catch a mis-parsed file (wrong offsets from an
     # unexpected format revision) as an immediate, specific error rather than
@@ -411,8 +445,18 @@ def extract_cloupe(cloupe_path, outdir, include_image=True):
     assert matrix["CSR"].shape == (n_features, n_barcodes), \
         f"CSR shape {matrix['CSR'].shape} != (FeatureCount, BarcodeCount) ({n_features}, {n_barcodes})"
 
+    feature_ids, feature_names, csr_real, excluded = exclude_synthetic_totals(
+        feature_ids, feature_names, matrix["CSR"]
+    )
+    if excluded:
+        print(f"[cloupe] Excluding {len(excluded)} synthetic total row(s): "
+              f"{excluded}", flush=True)
+        n_features = len(feature_ids)
+
+    print(f"[cloupe] {n_features:,} features x {n_barcodes:,} barcodes", flush=True)
+
     # Count matrix (Features x Barcodes -> int32)
-    csr_int = matrix["CSR"].astype(np.int32)
+    csr_int = csr_real.astype(np.int32)
     mtx_path = os.path.join(outdir, "matrix.mtx")
     scipy.io.mmwrite(mtx_path, csr_int)
     with open(mtx_path, "rb") as fin, \

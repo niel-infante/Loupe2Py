@@ -1,3 +1,13 @@
+# loupe2py 0.2.1
+
+## Bug fix
+
+- **Fixed inflated count totals from synthetic per-file rows leaking into the count matrix.** Every `.cloupe` file's `Matrices` section appends built-in aggregate rows after the real genes — one `type_sum_<FeatureType>` row per feature type and one `genome_sum_<Reference>` row per reference genome — each holding that barcode's *entire* total for the category, not a real gene's count. `extract_cloupe()` previously wrote these out as if they were ordinary genes, in `features.tsv.gz`/`matrix.mtx.gz` and therefore in every `AnnData`/`Seurat` object built from them. For a typical single-feature-type, single-genome sample (the common case), this meant every cell's real gene sum, a `type_sum` row equal to that same sum, and a `genome_sum` row equal to it again — totaling exactly **3x** the correct value for standard per-cell metrics (`nCount_Spatial`/`total_counts`), and silently deflating `percent.mt` by the same factor.
+- New `exclude_synthetic_totals()` drops these rows (matched by ID prefix, not position, so it generalizes to files with multiple feature types or reference genomes) before the count matrix, feature list, or any downstream metric is built.
+- **If you've run `cloupe_to_seurat()` or `cloupe_to_anndata()` on any `.cloupe` file with a `loupe2py` version before this one, re-extract** — per-cell total counts and `percent.mt` were wrong, and two bogus "genes" (`type_sum_...`, `genome_sum_...`) were present in the feature list. Confirmed via paired official SpaceRanger output on two independent real Visium HD samples: after this fix, every real (gene, barcode) count matches exactly (not just correlates) — this was purely an extra-rows issue, not corruption of the real per-gene values themselves.
+- This affects any `.cloupe` file, not just probe-based/FFPE chemistry specifically — it's a property of the `.cloupe` format's own `Matrices` section, not something specific to the samples it was first found on.
+- Also extends `_TESTED_VERSIONS` to cover container format `8.0.0` and matrix format `6.2.0`, validated on the same sample that surfaced this bug.
+
 # loupe2py 0.2.0
 
 ## License change
